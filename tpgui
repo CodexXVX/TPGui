@@ -1,0 +1,245 @@
+--[[ 
+   TELEPORT GUI + DATASTORE + LANGUAGE + BLUR + DRAG + FULL/MINI
+   Hammasi bitta scriptga yig‘ilgan.
+   ⚠️ ServerScript sifatida ServerScriptService ichiga qo‘ying
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local DataStoreService = game:GetService("DataStoreService")
+
+local store = DataStoreService:GetDataStore("TeleportSave_v1")
+
+-- ======================
+-- REMOTEEVENT (AUTO CREATE)
+-- ======================
+local remote = ReplicatedStorage:FindFirstChild("SaveTeleportData")
+if not remote then
+	remote = Instance.new("RemoteEvent")
+	remote.Name = "SaveTeleportData"
+	remote.Parent = ReplicatedStorage
+end
+
+-- ======================
+-- SERVER LOGIC
+-- ======================
+
+-- SAVE FUNCTION
+remote.OnServerEvent:Connect(function(player, startCF, finishCF)
+	if typeof(startCF) ~= "CFrame" or typeof(finishCF) ~= "CFrame" then return end
+
+	local data = {
+		Start = {startCF:GetComponents()},
+		Finish = {finishCF:GetComponents()}
+	}
+
+	local success, err = pcall(function()
+		store:SetAsync(player.UserId, data)
+	end)
+	if not success then
+		warn("Save failed:", err)
+	end
+end)
+
+-- LOAD FUNCTION
+Players.PlayerAdded:Connect(function(player)
+	local success, data = pcall(function()
+		return store:GetAsync(player.UserId)
+	end)
+
+	if success and data then
+		player:SetAttribute("StartTP", data.Start)
+		player:SetAttribute("FinishTP", data.Finish)
+	end
+end)
+
+-- ======================
+-- LOCAL GUI & LOGIC (LocalScript) 
+-- ======================
+local function createLocalScript(player)
+	local playerGui = player:WaitForChild("PlayerGui")
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "TeleportGUI"
+	gui.Parent = playerGui
+
+	-- main frame
+	local main = Instance.new("Frame")
+	main.Name = "MainFrame"
+	main.Size = UDim2.fromScale(0.4,0.4)
+	main.Position = UDim2.fromScale(0.3,0.3)
+	main.Visible = true
+	main.BackgroundColor3 = Color3.fromRGB(50,50,50)
+	main.Parent = gui
+
+	local topBar = Instance.new("Frame")
+	topBar.Name = "TopBar"
+	topBar.Size = UDim2.new(1,0,0,30)
+	topBar.BackgroundColor3 = Color3.fromRGB(35,35,35)
+	topBar.Parent = main
+
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "CloseBtn"
+	closeBtn.Size = UDim2.new(0,30,0,30)
+	closeBtn.Position = UDim2.new(1,-30,0,0)
+	closeBtn.Text = "X"
+	closeBtn.Parent = topBar
+
+	local fullBtn = Instance.new("TextButton")
+	fullBtn.Name = "FullBtn"
+	fullBtn.Size = UDim2.new(0,30,0,30)
+	fullBtn.Position = UDim2.new(1,-60,0,0)
+	fullBtn.Text = "F"
+	fullBtn.Parent = topBar
+
+	-- teleport buttons
+	local setStart = Instance.new("TextButton")
+	setStart.Name = "SetStart"
+	setStart.Text = "Set Start"
+	setStart.Size = UDim2.new(0,100,0,30)
+	setStart.Position = UDim2.new(0,10,0,40)
+	setStart.Parent = main
+
+	local setFinish = Instance.new("TextButton")
+	setFinish.Name = "SetFinish"
+	setFinish.Text = "Set Finish"
+	setFinish.Size = UDim2.new(0,100,0,30)
+	setFinish.Position = UDim2.new(0,10,0,80)
+	setFinish.Parent = main
+
+	local tpStart = Instance.new("TextButton")
+	tpStart.Name = "TPStart"
+	tpStart.Text = "TP Start"
+	tpStart.Size = UDim2.new(0,100,0,30)
+	tpStart.Position = UDim2.new(0,120,0,40)
+	tpStart.Visible = false
+	tpStart.Parent = main
+
+	local tpFinish = Instance.new("TextButton")
+	tpFinish.Name = "TPFinish"
+	tpFinish.Text = "TP Finish"
+	tpFinish.Size = UDim2.new(0,100,0,30)
+	tpFinish.Position = UDim2.new(0,120,0,80)
+	tpFinish.Visible = false
+	tpFinish.Parent = main
+
+	local saveBtn = Instance.new("TextButton")
+	saveBtn.Name = "SaveConfig"
+	saveBtn.Text = "Save"
+	saveBtn.Size = UDim2.new(0,80,0,30)
+	saveBtn.Position = UDim2.new(0,10,0,120)
+	saveBtn.Parent = main
+
+	-- LANGUAGE SYSTEM
+	local lang = "EN"
+	local texts = {
+		EN={SetStart="Set Start",SetFinish="Set Finish",TPStart="TP Start",TPFinish="TP Finish",Save="Save"},
+		UZ={SetStart="Start o'rnatish",SetFinish="Finish o'rnatish",TPStart="Startga TP",TPFinish="Finishga TP",Save="Saqlash"},
+		RU={SetStart="Установить старт",SetFinish="Установить финиш",TPStart="ТП к старту",TPFinish="ТП к финишу",Save="Сохранить"},
+	}
+	local function applyLang()
+		local t=texts[lang]
+		setStart.Text=t.SetStart
+		setFinish.Text=t.SetFinish
+		tpStart.Text=t.TPStart
+		tpFinish.Text=t.TPFinish
+		saveBtn.Text=t.Save
+	end
+	applyLang()
+
+	-- ======================
+	-- TELEPORT LOGIC
+	-- ======================
+	local startPos
+	local finishPos
+	local character = player.Character or player.CharacterAdded:Wait()
+
+	setStart.MouseButton1Click:Connect(function()
+		if player.Character then
+			startPos = player.Character:GetPivot()
+		end
+	end)
+	setFinish.MouseButton1Click:Connect(function()
+		if player.Character then
+			finishPos = player.Character:GetPivot()
+		end
+		if startPos and finishPos then
+			setStart.Visible=false
+			setFinish.Visible=false
+			tpStart.Visible=true
+			tpFinish.Visible=true
+		end
+	end)
+	tpStart.MouseButton1Click:Connect(function()
+		if startPos and player.Character then
+			player.Character:PivotTo(startPos)
+		end
+	end)
+	tpFinish.MouseButton1Click:Connect(function()
+		if finishPos and player.Character then
+			player.Character:PivotTo(finishPos)
+		end
+	end)
+
+	-- ======================
+	-- SAVE DATASTORE
+	-- ======================
+	saveBtn.MouseButton1Click:Connect(function()
+		if startPos and finishPos then
+			remote:FireServer(startPos, finishPos)
+			print("Saved to DataStore")
+		end
+	end)
+
+	-- LOAD FROM ATTRIBUTES
+	local function fromArray(arr)
+		return CFrame.new(unpack(arr))
+	end
+	local function loadData()
+		local s=player:GetAttribute("StartTP")
+		local f=player:GetAttribute("FinishTP")
+		if s and f then
+			startPos=fromArray(s)
+			finishPos=fromArray(f)
+			setStart.Visible=false
+			setFinish.Visible=false
+			tpStart.Visible=true
+			tpFinish.Visible=true
+		end
+	end
+	player:GetAttributeChangedSignal("StartTP"):Connect(loadData)
+	loadData()
+
+	-- ======================
+	-- DRAG SYSTEM
+	-- ======================
+	local dragging=false
+	local dragStart
+	local startPosUI
+	topBar.InputBegan:Connect(function(input)
+		if input.UserInputType==Enum.UserInputType.MouseButton1 then
+			dragging=true
+			dragStart=input.Position
+			startPosUI=main.Position
+		end
+	end)
+	UIS.InputChanged:Connect(function(input)
+		if dragging and input.UserInputType==Enum.UserInputType.MouseMovement then
+			local delta=input.Position-dragStart
+			main.Position=UDim2.new(startPosUI.X.Scale,startPosUI.X.Offset+delta.X,startPosUI.Y.Scale,startPosUI.Y.Offset+delta.Y)
+		end
+	end)
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType==Enum.UserInputType.MouseButton1 then
+			dragging=false
+		end
+	end)
+end
+
+-- CREATE LOCAL SCRIPT FOR EACH PLAYER
+Players.PlayerAdded:Connect(createLocalScript)
+for _,p in pairs(Players:GetPlayers()) do
+	createLocalScript(p)
+end
